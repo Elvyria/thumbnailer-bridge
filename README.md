@@ -1,5 +1,5 @@
 # thumbnailer-bridge
-<!-- [![Crates.io](https://img.shields.io/crates/v/thumbnailer-bridge.svg)](https://crates.io/crates/thumbnailer-bridge) -->
+[![Crates.io](https://img.shields.io/crates/v/thumbnailer-bridge.svg)](https://crates.io/crates/thumbnailer-bridge)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 
@@ -49,7 +49,7 @@ This is how you request thumbnails. Flavor `-f` or `--flavor` is usually respons
 thumbnailer-bridge -f x-large $PWD/*
 ```
 
-I recommend you to use full path to your current directory that your file manager provides, instead using relative path,
+I recommend you to use full path to your current directory that your file manager provides, instead of using relative path,
 this way, if you're inside a sym-linked location `/home/user/pictures -> /mnt/nas`, your thumbnails will be preserved
 if you decide to remount original location `/home/user/pictures -> /mnt/nas-old`
 
@@ -62,18 +62,17 @@ $ thumbnailer-bridge --listen
 ...
 ```
 Your will find your thumbnails at `$XDG_CACHE_HOME/thumbnails/(flavor)/(md5).png`.  
+
 For additional information:
 [Thumbnail Managing Standard](https://specifications.freedesktop.org/thumbnail-spec/thumbnail-spec-latest.html).
 
 ## Installation
 
-<!-- Can be installed from [crates.io](https://crates.io/) with `cargo`: -->
+Can be installed from [crates.io](https://crates.io/) with `cargo`:
 
-<!-- ```bash -->
-<!-- cargo install thumbnailer-bridge -->
-<!-- ``` -->
-
-🚧 Under Construction
+```bash
+cargo install thumbnailer-bridge
+```
 
 ## Building
 
