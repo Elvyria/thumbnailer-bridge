@@ -2,6 +2,8 @@ use std::time::Duration;
 
 use rustbus::{RpcConn, MessageBuilder, connection::{Timeout, Error}};
 
+use crate::URI_PREFIX;
+
 const TIMEOUT: Timeout = Timeout::Duration(Duration::from_secs(1));
 
 // https://wiki.gnome.org/DraftSpecs/ThumbnailerSpec#org.freedesktop.thumbnails.Thumbnailer1
@@ -26,10 +28,14 @@ pub fn list_flavors(conn: &mut RpcConn) -> Result<Vec<String>, Error> {
     Ok(flavors)
 }
 
-pub fn list_supported(conn: &mut RpcConn) -> Result<(Vec<String>, Vec<String>), Error> {
+pub fn request_supported(conn: &mut RpcConn) -> Result<u32, Error> {
     let mut msg = message!("GetSupported");
     let id = conn.send_message(&mut msg)?.write_all().map_err(|e| e.1)?;
 
+    Ok(id)
+}
+
+pub fn wait_supported(conn: &mut RpcConn, id: u32) -> Result<(Vec<String>, Vec<String>), Error> {
     let resp = conn.wait_response(id, TIMEOUT)?;
     let (schemes, mimes): (Vec<String>, Vec<String>) = resp.body.parser().get2()?;
 
@@ -59,7 +65,6 @@ pub fn queue_thumbnails(conn: &mut RpcConn, uris: Vec<String>, mimes: Vec<String
 }
 
 pub fn listen(conn: &mut RpcConn) -> Result<(), Error> {
-
     // https://dbus.freedesktop.org/doc/dbus-specification.html#bus-messages-become-monitor
     let mut msg = MessageBuilder::new()
         .call("BecomeMonitor")

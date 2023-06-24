@@ -1,15 +1,16 @@
 mod rpc;
+mod png;
 
-use std::{path::PathBuf, env, collections::HashSet, sync::{Once, Mutex}, io::Write, cmp::max};
+use std::{path::{PathBuf, Path}, env, collections::HashSet, sync::{Once, Mutex}, io::{Write, BufRead, self, Read}, cmp::max, process::ExitCode, fs::{File, Metadata}, time::UNIX_EPOCH};
 use magic::{Cookie, CookieFlags};
 use rayon::prelude::*;
 
 use anyhow::Error;
 use clap::Parser;
 use path_absolutize::Absolutize;
-use rustbus::RpcConn;
+use rustbus::{RpcConn, connection::Timeout};
 
-const URI_PREFIX: &str = "file://";
+pub const URI_PREFIX: &str = "file://";
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -25,7 +26,7 @@ struct Args {
     #[arg(short, long, default_value = "default")]
     scheduler: String,
 
-    /// Do not check if thumbnail already exists
+    /// Do not check if thumbnail already exists and valid
     #[arg(short, long)]
     unchecked: bool,
 
@@ -46,13 +47,15 @@ struct Args {
     list_mime: bool,
 }
 
-fn main() -> Result<(), Error> {
-    let args = Args::parse();
+fn main() -> Result<ExitCode, Error> {
+    let mut args = Args::parse();
 
-    let mut conn = RpcConn::session_conn(rustbus::connection::Timeout::Infinite)?;
+    let mut conn = RpcConn::session_conn(Timeout::Infinite)?;
 
     if args.listen {
-        return rpc::listen(&mut conn).map_err(Into::into)
+        return rpc::listen(&mut conn)
+            .map_err(Into::into)
+            .map(|_| ExitCode::SUCCESS);
     }
 
     let list = if args.list_flavors
@@ -65,7 +68,7 @@ fn main() -> Result<(), Error> {
     }
     else if args.list_mime
     {
-        Some(rpc::list_supported(&mut conn)?.1)
+        Some(rpc::request_supported(&mut conn).and_then(|id| rpc::wait_supported(&mut conn, id))?.1)
     }
     else { None };
 
@@ -78,9 +81,25 @@ fn main() -> Result<(), Error> {
             v
         });
 
-        std::io::stdout().lock().write_all(&s)?;
+        io::stdout().lock().write_all(&s)?;
 
-        return Ok(())
+        return Ok(ExitCode::SUCCESS)
+    }
+
+    if args.paths.is_empty() {
+        args.paths = io::stdin().lock()
+            .lines()
+            .map_while(Result::ok)
+            .map(PathBuf::from)
+            .collect();
+
+        if let Some(path) = args.paths.first() {
+            if !path.exists() {
+                println!("\"{}\": No such file or directory", path.to_str().unwrap());
+
+                return Ok(ExitCode::FAILURE)
+            }
+        }
     }
 
     if !args.paths.is_empty() {
@@ -91,7 +110,7 @@ fn main() -> Result<(), Error> {
         }
     }
 
-    Ok(())
+    Ok(ExitCode::SUCCESS)
 }
 
 fn cache_dir() -> PathBuf {
@@ -105,14 +124,40 @@ fn cache_dir() -> PathBuf {
     .expect("couldn't find cache directory")
 }
 
+fn thumbnail_is_valid(p_meta: Metadata, t: impl AsRef<Path>) -> bool {
+    let Ok(mut fd) = File::open(t) else {
+        return false
+    };
+
+    let mut buf = vec![0; 1024];
+
+    fd.read(&mut buf).unwrap();
+
+    let Some(time) = png::mtime(&buf) else {
+        return false
+    };
+
+    let modified = p_meta.modified().unwrap();
+
+    let p_secs = modified.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+
+    let Some(t_secs) = time.split('.').next().and_then(|s| s.parse::<u64>().ok()) else {
+        return false
+    };
+
+    p_secs == t_secs
+}
+
 fn create_missing(conn: &mut RpcConn, paths: Vec<PathBuf>, flavor: &str, scheduler: &str) -> Result<(), Error> {
+    let request_id = rpc::request_supported(conn)?;
+
     let mut thumbnails_dir = cache_dir();
     thumbnails_dir.push("thumbnails");
     thumbnails_dir.push(flavor);
 
     let mtx = Mutex::new((vec![], vec![]));
 
-    let (_, supported) = rpc::list_supported(conn)?;
+    let (_, supported) = rpc::wait_supported(conn, request_id)?;
     let supported = HashSet::<String>::from_iter(supported);
 
     paths.par_chunks(max(1, paths.len() / 4)).for_each_init(|| {
@@ -121,7 +166,11 @@ fn create_missing(conn: &mut RpcConn, paths: Vec<PathBuf>, flavor: &str, schedul
     },
     |(cookie, once), chunk| {
         for p in chunk {
-            if !p.is_file() { continue }
+            let Ok(p_meta) = std::fs::metadata(p) else {
+                continue
+            };
+
+            if !p_meta.is_file() { continue }
 
             let Ok(abs) = p.absolutize() else { continue };
 
@@ -138,7 +187,7 @@ fn create_missing(conn: &mut RpcConn, paths: Vec<PathBuf>, flavor: &str, schedul
             let mut thumbnail = thumbnails_dir.clone();
             thumbnail.push(&sum);
 
-            if !thumbnail.exists() {
+            if !thumbnail.exists() || !thumbnail_is_valid(p_meta, thumbnail) {
                 once.call_once(|| cookie.load::<&str>(&[]).expect("loading cookie database"));
 
                 if let Ok(mime) = cookie.file(&uri[URI_PREFIX.len()..]) {
@@ -148,7 +197,7 @@ fn create_missing(conn: &mut RpcConn, paths: Vec<PathBuf>, flavor: &str, schedul
                         lock.0.push(uri);
                         lock.1.push(mime);
                     }
-                };
+                }
             }
         }
     });
@@ -165,7 +214,8 @@ fn create_missing(conn: &mut RpcConn, paths: Vec<PathBuf>, flavor: &str, schedul
 fn create_all(conn: &mut RpcConn, paths: Vec<PathBuf>, flavor: &str, scheduler: &str) -> Result<(), Error> {
     let mtx = Mutex::new((vec![], vec![]));
 
-    let (_, supported) = rpc::list_supported(conn)?;
+    let request_id = rpc::request_supported(conn)?;
+    let (_, supported) = rpc::wait_supported(conn, request_id)?;
     let supported = HashSet::<String>::from_iter(supported);
 
     paths.par_chunks(max(1, paths.len() / 4)).for_each_init(|| {
