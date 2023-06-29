@@ -64,6 +64,36 @@ pub fn queue_thumbnails(conn: &mut RpcConn, uris: Vec<String>, mimes: Vec<String
     Ok(handle)
 }
 
+fn monitor(conn: &mut RpcConn, handle: u32) -> Result<(), Error> {
+    let timeout = Timeout::Duration(Duration::from_secs(60));
+
+    loop {
+        let Ok(signal) = conn.wait_signal(timeout) else {
+            break;
+        };
+
+        match signal.dynheader.member.as_deref() {
+            Some("Ready") => {
+                let (reported_handle, uris): (u32, Vec<String>) = signal.body.parser().get2()?;
+
+                if reported_handle == handle {
+                    uris.iter()
+                        .filter_map(|uri| uri.strip_prefix(URI_PREFIX))
+                        .for_each(|path| println!("{}", path));
+                }
+            },
+            Some("Finished") => {
+                if handle == signal.body.parser().get::<u32>()? {
+                    break
+                }
+            },
+            _ => {}
+        }
+    }
+
+    Ok(())
+}
+
 pub fn listen(conn: &mut RpcConn) -> Result<(), Error> {
     // https://dbus.freedesktop.org/doc/dbus-specification.html#bus-messages-become-monitor
     let mut msg = MessageBuilder::new()

@@ -243,6 +243,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "io-uring"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b7b36074613a723279637061b40db993208908a94f10ccb14436ce735bc0f57"
+dependencies = [
+ "bitflags",
+ "libc",
+]
+
+[[package]]
 name = "is-terminal"
 version = "0.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -509,6 +519,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "io-uring",
+ "libc",
  "magic",
  "md5",
  "path-absolutize",

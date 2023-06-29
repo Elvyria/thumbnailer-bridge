@@ -1,7 +1,11 @@
+#![allow(unreachable_code)]
 mod rpc;
 mod png;
+mod c;
 
-use std::{path::{PathBuf, Path}, env, collections::HashSet, sync::{Once, Mutex}, io::{Write, BufRead, self, Read}, cmp::max, process::ExitCode, fs::{File, Metadata}, time::UNIX_EPOCH};
+use std::{path::{PathBuf, Path}, env, collections::HashSet, sync::{Once, Mutex, Arc, atomic::{AtomicBool, Ordering, AtomicUsize}, RwLock}, io::{Write, BufRead, self, Read}, cmp::max, process::ExitCode, fs::{File, Metadata}, time::UNIX_EPOCH, thread, os::{fd::AsRawFd, unix::prelude::{OsStringExt, OsStrExt}}, ffi::{CString, OsString, OsStr}, vec};
+use io_uring::{opcode, types::Fd, IoUring, squeue::{EntryMarker, self}, cqueue};
+use libc::{statx, AT_FDCWD, O_RDONLY, O_NONBLOCK, O_NOFOLLOW, O_DIRECT};
 use magic::{Cookie, CookieFlags};
 use rayon::prelude::*;
 
@@ -148,55 +152,215 @@ fn thumbnail_is_valid(p_meta: Metadata, t: impl AsRef<Path>) -> bool {
     p_secs == t_secs
 }
 
+fn mime(b: &[u8]) {
+    let cookie = Cookie::open(CookieFlags::ERROR | CookieFlags::MIME_TYPE).expect("opening libmagic cookie");
+    cookie.load::<&str>(&[]).expect("loading cookie database");
+
+    cookie.buffer(b).unwrap();
+}
+
+enum EntryType {
+    StatPath,
+    OpenThumbnail,
+    ReadThumbnail,
+    OpenFile,
+    ReadFile,
+}
+
+struct UserData {
+    op:     EntryType,
+    uri:    String,
+    p:      CString,
+    p_stat: statx,
+    p_buf:  Vec<u8>,
+    t:      CString,
+    t_buf:  Vec<u8>
+}
+
+impl Default for UserData {
+    fn default() -> Self {
+        unsafe { UserData {
+            op:     EntryType::StatPath,
+            uri:    String::default(),
+            p:      CString::default(),
+            p_stat: std::mem::zeroed::<statx>(),
+            p_buf:  Vec::default(),
+            t:      CString::default(),
+            t_buf:  Vec::default(),
+        }}
+    }
+}
+
 fn create_missing(conn: &mut RpcConn, paths: Vec<PathBuf>, flavor: &str, scheduler: &str) -> Result<(), Error> {
     let request_id = rpc::request_supported(conn)?;
+
+    let mut ring: IoUring<squeue::Entry, cqueue::Entry> =
+        IoUring::builder()
+        .setup_sqpoll(10)
+        .build(max(1024, paths.len() as u32))?;
+
+    let pwd = Fd(AT_FDCWD);
+    let to_process = Arc::new(AtomicUsize::new(paths.len()));
+
+    paths.into_iter().for_each(|p| unsafe {
+        let p = CString::from_vec_unchecked(p.into_os_string().into_vec());
+
+        let user_data = Box::new(UserData { op: EntryType::StatPath, p, ..UserData::default()});
+        let user_ref  = Box::leak(user_data);
+
+        let op = opcode::Statx::new(pwd, user_ref.p.as_ptr(), &user_ref.p_stat as *const libc::statx as *mut _).build().user_data(user_ref as *const _ as _);
+        ring.submission().push(&op).expect("submission queue is full");
+    });
+
+    ring.submit()?;
 
     let mut thumbnails_dir = cache_dir();
     thumbnails_dir.push("thumbnails");
     thumbnails_dir.push(flavor);
+
+    let mut thumbnails_dir = thumbnails_dir.into_os_string().into_vec();
+    let thumbnails_dir_end = thumbnails_dir.len();
+    thumbnails_dir.resize(thumbnails_dir.len() + 38, 0);
+
+    let work = Arc::new(Mutex::new(Vec::<UserData>::new()));
+
+    {
+
+    let to_process = to_process.clone();
+    let work = work.clone();
+
+    thread::spawn(move || {
+        while to_process.load(Ordering::Acquire) != 0 { for entry in unsafe { ring.completion_shared() } {
+            let mut user_data = unsafe { Box::from_raw(entry.user_data() as *mut UserData) };
+
+            match user_data.op {
+                EntryType::StatPath => {
+                    if entry.result() != 0 || !c::is_file(user_data.p_stat.stx_mode as u32) {
+                        to_process.fetch_sub(1, Ordering::Release);
+
+                        continue;
+                    }
+
+                    let p = Path::new(OsStr::from_bytes(user_data.p.as_bytes()));
+
+                    let Ok(abs) = p.absolutize() else {
+                        to_process.fetch_sub(1, Ordering::Release);
+
+                        continue
+                    };
+
+                    let mut uri = String::from(URI_PREFIX);
+                    uri.push_str(abs.to_str().unwrap());
+
+                    let sum = format!("/{:x}.png", md5::compute(&uri));
+
+                    let mut thumbnail = thumbnails_dir.clone();
+                    thumbnail[thumbnails_dir_end..thumbnails_dir_end + 37].copy_from_slice(sum.as_bytes());
+
+                    user_data.op = EntryType::OpenThumbnail;
+                    user_data.uri = uri;
+                    user_data.t  = unsafe { CString::from_vec_with_nul_unchecked(thumbnail) };
+
+                    let user_ref = Box::leak(user_data);
+
+                    let op = opcode::OpenAt::new(pwd, user_ref.t.as_ptr()).flags(O_RDONLY).build().user_data(user_ref as *const _ as _);
+
+                    unsafe { ring.submission_shared().push(&op).expect("submission queue is full"); }
+                }
+                EntryType::OpenThumbnail => {
+                    let op = if entry.result().is_negative() {
+                        user_data.op = EntryType::OpenFile;
+                        let user_ref = Box::leak(user_data);
+
+                        opcode::OpenAt::new(pwd, user_ref.p.as_ptr()).flags(O_RDONLY).build().user_data(user_ref as *const _ as _)
+                    } else {
+                        user_data.op = EntryType::ReadThumbnail;
+                        user_data.t_buf = vec![0; 1024];
+                        let user_ref = Box::leak(user_data);
+
+                        opcode::Read::new(Fd(entry.result()), user_ref.t_buf.as_mut_ptr(), user_ref.t_buf.len() as _).build().user_data(user_ref as *const _ as _)
+                    };
+
+                    unsafe { ring.submission_shared().push(&op).expect("submission queue is full"); }
+                }
+                EntryType::ReadThumbnail => {
+                    if entry.result().is_positive() {
+                        let t_mtime = png::mtime(&user_data.t_buf);
+                        let t_mtime_sec = t_mtime.and_then(|s| s.split('.').next().and_then(|s| s.parse::<u64>().ok()));
+
+                        if t_mtime_sec == Some(user_data.p_stat.stx_mtime.tv_sec as u64) {
+                            to_process.fetch_sub(1, Ordering::Release);
+
+                            continue
+                        }
+                    }
+
+                    user_data.op = EntryType::OpenFile;
+                    let user_ref = Box::leak(user_data);
+
+                    let op = opcode::OpenAt::new(pwd, user_ref.p.as_ptr()).flags(O_RDONLY).build().user_data(user_ref as *const _ as _);
+                    unsafe { ring.submission_shared().push(&op).expect("submission queue is full"); }
+                }
+                EntryType::OpenFile => {
+                    if entry.result().is_positive() {
+                        user_data.p_buf.resize(1024, 0);
+
+                        user_data.op = EntryType::ReadFile;
+                        let user_ref = Box::leak(user_data);
+
+                        let op = opcode::Read::new(Fd(entry.result()), user_ref.p_buf.as_mut_ptr(), 1024).build().user_data(user_ref as *const _ as _);
+                        unsafe { ring.submission_shared().push(&op).expect("submission queue is full"); }
+                    }
+                    else { to_process.fetch_sub(1, Ordering::Release); }
+                }
+                EntryType::ReadFile => {
+                    if entry.result().is_positive() {
+                        let mut lock = work.lock().unwrap();
+                        lock.push(*user_data);
+                    }
+                    else { to_process.fetch_sub(1, Ordering::Release); }
+                }
+            }
+        }}
+    });
+
+    }
 
     let mtx = Mutex::new((vec![], vec![]));
 
     let (_, supported) = rpc::wait_supported(conn, request_id)?;
     let supported = HashSet::<String>::from_iter(supported);
 
-    paths.par_chunks(max(1, paths.len() / 4)).for_each_init(|| {
-        let cookie = Cookie::open(CookieFlags::ERROR | CookieFlags::MIME_TYPE).expect("opening libmagic cookie");
-        (cookie, Once::new())
-    },
-    |(cookie, once), chunk| {
-        for p in chunk {
-            let Ok(p_meta) = std::fs::metadata(p) else {
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(2)
+        .spawn_handler(|thread| {
+            std::thread::spawn(|| thread.run());
+            Ok(())
+        })
+        .build()?;
+
+    pool.broadcast(|_| {
+        let cookie = magic::Cookie::open(CookieFlags::ERROR | CookieFlags::MIME_TYPE).unwrap();
+        cookie.load::<&str>(&[]).expect("loading cookie database");
+
+        while to_process.load(Ordering::Acquire) != 0 {
+            let user_data = { 
+                let mut lock = work.lock().unwrap();
+                lock.pop()
+            };
+
+            let Some(user_data) = user_data else {
                 continue
             };
 
-            if !p_meta.is_file() { continue }
+            if let Ok(mime) = cookie.buffer(&user_data.p_buf) {
+                if supported.contains(&mime) {
+                    to_process.fetch_sub(1, Ordering::AcqRel);
 
-            let Ok(abs) = p.absolutize() else { continue };
+                    let mut lock = mtx.lock().expect("locking vectors to push new uri and mime");
 
-            let Some(abs_str) = abs.to_str() else {
-                println!("Warning! A non-valid UTF-8 path was provided, this is not supported.\n{}\n", abs.to_string_lossy());
-                continue
-            };
-
-            let mut uri = String::from(URI_PREFIX);
-            uri.push_str(abs_str);
-
-            let sum = format!("{:x}.png", md5::compute(&uri));
-
-            let mut thumbnail = thumbnails_dir.clone();
-            thumbnail.push(&sum);
-
-            if !thumbnail.exists() || !thumbnail_is_valid(p_meta, thumbnail) {
-                once.call_once(|| cookie.load::<&str>(&[]).expect("loading cookie database"));
-
-                if let Ok(mime) = cookie.file(&uri[URI_PREFIX.len()..]) {
-                    if supported.contains(&mime) {
-                        let mut lock = mtx.lock().expect("locking vectors to push new uri and mime");
-
-                        lock.0.push(uri);
-                        lock.1.push(mime);
-                    }
+                    lock.0.push(user_data.uri);
+                    lock.1.push(mime);
                 }
             }
         }
@@ -204,9 +368,9 @@ fn create_missing(conn: &mut RpcConn, paths: Vec<PathBuf>, flavor: &str, schedul
 
     let (uris, mimes) = mtx.into_inner().unwrap();
 
-    if !uris.is_empty() {
-        rpc::queue_thumbnails(conn, uris, mimes, flavor, scheduler)?;
-    }
+    // if !uris.is_empty() {
+        // rpc::queue_thumbnails(conn, uris, mimes, flavor, scheduler)?;
+    // }
 
     Ok(())
 }
