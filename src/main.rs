@@ -1,7 +1,7 @@
 mod rpc;
 mod png;
 
-use std::{path::{PathBuf, Path}, env, collections::HashSet, sync::{Once, Mutex}, io::{Write, BufRead, self, Read}, cmp::max, process::ExitCode, fs::{File, Metadata}, time::UNIX_EPOCH};
+use std::{path::{PathBuf, Path}, env, collections::HashSet, sync::{Once, Mutex}, io::{Write, BufRead, self, Read}, cmp::max, process::ExitCode, fs::{File, Metadata}, time::UNIX_EPOCH, os::unix::prelude::OsStringExt, ffi::OsString};
 use magic::{Cookie, CookieFlags};
 use rayon::prelude::*;
 
@@ -155,6 +155,11 @@ fn create_missing(conn: &mut RpcConn, paths: Vec<PathBuf>, flavor: &str, schedul
     thumbnails_dir.push("thumbnails");
     thumbnails_dir.push(flavor);
 
+    let mut thumbnails_dir = thumbnails_dir.into_os_string().into_vec();
+    let thumbnails_dir_len = thumbnails_dir.len();
+
+    thumbnails_dir.resize(thumbnails_dir.len() + 37, 0);
+
     let mtx = Mutex::new((vec![], vec![]));
 
     let (_, supported) = rpc::wait_supported(conn, request_id)?;
@@ -182,10 +187,12 @@ fn create_missing(conn: &mut RpcConn, paths: Vec<PathBuf>, flavor: &str, schedul
             let mut uri = String::from(URI_PREFIX);
             uri.push_str(abs_str);
 
-            let sum = format!("{:x}.png", md5::compute(&uri));
+            let sum = format!("/{:x}.png", md5::compute(&uri));
 
             let mut thumbnail = thumbnails_dir.clone();
-            thumbnail.push(&sum);
+            thumbnail[thumbnails_dir_len..].copy_from_slice(sum.as_bytes());
+
+            let thumbnail = PathBuf::from(OsString::from_vec(thumbnail));
 
             if !thumbnail.exists() || !thumbnail_is_valid(p_meta, thumbnail) {
                 once.call_once(|| cookie.load::<&str>(&[]).expect("loading cookie database"));
@@ -245,7 +252,6 @@ fn create_all(conn: &mut RpcConn, paths: Vec<PathBuf>, flavor: &str, scheduler: 
                     lock.1.push(mime);
                 }
             };
-
         }
     });
 
