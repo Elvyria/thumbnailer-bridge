@@ -27,3 +27,15 @@ pub fn mtime(mut b: &[u8]) -> Option<Cow<'_, str>> {
 
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use std::borrow::Cow::Borrowed;
+
+    #[test]
+    fn mtime() {
+        let b = include_bytes!("../assets/test_thumbnail.png");
+
+        assert_eq!(Some(Borrowed("1664435861.573808")), super::mtime(b))
+    }
+}

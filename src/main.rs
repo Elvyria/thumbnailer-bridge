@@ -248,3 +248,12 @@ fn create_all(conn: &mut RpcConn, paths: Vec<PathBuf>, flavor: &str, scheduler: 
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn thumbnail_is_valid() {
+        let p_meta = std::fs::metadata("assets/test_image.png").unwrap();
+        assert!(super::thumbnail_is_valid(p_meta, "assets/test_thumbnail.png"))
+    }
+}
