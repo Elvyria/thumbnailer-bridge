@@ -139,6 +139,8 @@ fn thumbnail_is_valid(p_meta: Metadata, t: impl AsRef<Path>) -> bool {
 
     let modified = p_meta.modified().unwrap();
 
+    println!("{:?}", modified);
+
     let p_secs = modified.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
 
     let Some(t_secs) = time.split('.').next().and_then(|s| s.parse::<u64>().ok()) else {
@@ -251,8 +253,13 @@ fn create_all(conn: &mut RpcConn, paths: Vec<PathBuf>, flavor: &str, scheduler: 
 
 #[cfg(test)]
 mod tests {
+    use filetime::FileTime;
+
     #[test]
     fn thumbnail_is_valid() {
+        let mtime = FileTime::from_unix_time(1664435861, 573808);
+        filetime::set_file_mtime("assets/test_image.png", mtime).unwrap();
+
         let p_meta = std::fs::metadata("assets/test_image.png").unwrap();
         assert!(super::thumbnail_is_valid(p_meta, "assets/test_thumbnail.png"))
     }
