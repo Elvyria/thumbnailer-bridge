@@ -1,8 +1,7 @@
 mod rpc;
 mod png;
 
-use std::{path::{PathBuf, Path}, env, collections::HashSet, sync::{Once, Mutex}, io::{Write, BufRead, self, Read}, cmp::max, process::ExitCode, fs::{File, Metadata}, time::UNIX_EPOCH, os::unix::prelude::OsStringExt, ffi::OsString};
-use magic::{Cookie, CookieFlags};
+use std::{path::{PathBuf, Path}, env, collections::HashSet, sync::Mutex, io::{Write, BufRead, self, Read}, process::ExitCode, fs::{File, Metadata}, time::UNIX_EPOCH, os::unix::prelude::OsStringExt, ffi::OsString};
 use rayon::prelude::*;
 
 use anyhow::Error;
@@ -158,52 +157,45 @@ fn create_missing(conn: &mut RpcConn, paths: Vec<PathBuf>, flavor: &str, schedul
     let mut thumbnails_dir = thumbnails_dir.into_os_string().into_vec();
     let thumbnails_dir_len = thumbnails_dir.len();
 
-    thumbnails_dir.resize(thumbnails_dir.len() + 37, 0);
+    thumbnails_dir.resize(thumbnails_dir_len + 37, 0);
 
     let mtx = Mutex::new((vec![], vec![]));
 
     let (_, supported) = rpc::wait_supported(conn, request_id)?;
+
     let supported = HashSet::<String>::from_iter(supported);
 
-    paths.par_chunks(max(1, paths.len() / 4)).for_each_init(|| {
-        let cookie = Cookie::open(CookieFlags::ERROR | CookieFlags::MIME_TYPE).expect("opening libmagic cookie");
-        (cookie, Once::new())
-    },
-    |(cookie, once), chunk| {
-        for p in chunk {
-            let Ok(p_meta) = std::fs::metadata(p) else {
-                continue
-            };
+    paths.par_iter().for_each(|p| {
+        let Ok(p_meta) = std::fs::metadata(p) else {
+            return
+        };
 
-            if !p_meta.is_file() { continue }
+        if !p_meta.is_file() { return }
 
-            let Ok(abs) = p.absolutize() else { continue };
+        let Ok(abs) = p.absolutize() else { return };
 
-            let Some(abs_str) = abs.to_str() else {
-                println!("Warning! A non-valid UTF-8 path was provided, this is not supported.\n{}\n", abs.to_string_lossy());
-                continue
-            };
+        let Some(abs_str) = abs.to_str() else {
+            println!("Warning! A non-valid UTF-8 path was provided, this is not supported.\n{}\n", abs.to_string_lossy());
+            return
+        };
 
-            let mut uri = String::from(URI_PREFIX);
-            uri.push_str(abs_str);
+        let mut uri = String::from(URI_PREFIX);
+        uri.push_str(abs_str);
 
-            let sum = format!("/{:x}.png", md5::compute(&uri));
+        let sum = format!("/{:x}.png", md5::compute(&uri));
 
-            let mut thumbnail = thumbnails_dir.clone();
-            thumbnail[thumbnails_dir_len..].copy_from_slice(sum.as_bytes());
+        let mut thumbnail = thumbnails_dir.clone();
+        thumbnail[thumbnails_dir_len..].copy_from_slice(sum.as_bytes());
 
-            let thumbnail = PathBuf::from(OsString::from_vec(thumbnail));
+        let thumbnail = PathBuf::from(OsString::from_vec(thumbnail));
 
-            if !thumbnail.exists() || !thumbnail_is_valid(p_meta, thumbnail) {
-                once.call_once(|| cookie.load::<&str>(&[]).expect("loading cookie database"));
+        if !thumbnail.exists() || !thumbnail_is_valid(p_meta, thumbnail) {
+            if let Some(mime) = tree_magic_mini::from_filepath(p) {
+                if supported.contains(mime) {
+                    let mut lock = mtx.lock().expect("locking vectors to push new uri and mime");
 
-                if let Ok(mime) = cookie.file(&uri[URI_PREFIX.len()..]) {
-                    if supported.contains(&mime) {
-                        let mut lock = mtx.lock().expect("locking vectors to push new uri and mime");
-
-                        lock.0.push(uri);
-                        lock.1.push(mime);
-                    }
+                    lock.0.push(uri);
+                    lock.1.push(mime.to_owned());
                 }
             }
         }
@@ -225,34 +217,27 @@ fn create_all(conn: &mut RpcConn, paths: Vec<PathBuf>, flavor: &str, scheduler: 
     let (_, supported) = rpc::wait_supported(conn, request_id)?;
     let supported = HashSet::<String>::from_iter(supported);
 
-    paths.par_chunks(max(1, paths.len() / 4)).for_each_init(|| {
-        let cookie = Cookie::open(CookieFlags::ERROR | CookieFlags::MIME_TYPE).expect("opening libmagic cookie");
-        cookie.load::<&str>(&[]).expect("loading cookie database");
-        cookie
-    },
-    |cookie, chunk| {
-        for p in chunk {
-            if !p.is_file() { continue }
+    paths.par_iter().for_each(|p| {
+        if !p.is_file() { return }
 
-            let Ok(abs) = p.absolutize() else { continue };
+        let Ok(abs) = p.absolutize() else { return };
 
-            let Some(abs_str) = abs.to_str() else {
-                println!("Warning! A non-valid UTF-8 path was provided, this is not supported.\n{}\n", abs.to_string_lossy());
-                continue
-            };
+        let Some(abs_str) = abs.to_str() else {
+            println!("Warning! A non-valid UTF-8 path was provided, this is not supported.\n{}\n", abs.to_string_lossy());
+            return
+        };
 
-            let mut uri = String::from(URI_PREFIX);
-            uri.push_str(abs_str);
+        let mut uri = String::from(URI_PREFIX);
+        uri.push_str(abs_str);
 
-            if let Ok(mime) = cookie.file(&uri[URI_PREFIX.len()..]) {
-                if supported.contains(&mime) {
-                    let mut lock = mtx.lock().expect("locking vectors to push new uri and mime");
+        if let Some(mime) = tree_magic_mini::from_filepath(p) {
+            if supported.contains(mime) {
+                let mut lock = mtx.lock().expect("locking vectors to push new uri and mime");
 
-                    lock.0.push(uri);
-                    lock.1.push(mime);
-                }
-            };
-        }
+                lock.0.push(uri);
+                lock.1.push(mime.to_owned());
+            }
+        };
     });
 
     let (uris, mimes) = mtx.into_inner().unwrap();
