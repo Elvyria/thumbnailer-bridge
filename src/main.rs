@@ -123,12 +123,13 @@ fn cache_dir() -> PathBuf {
     .expect("couldn't find cache directory")
 }
 
+#[allow(clippy::unused_io_amount)]
 fn thumbnail_is_valid(p_meta: Metadata, t: impl AsRef<Path>) -> bool {
     let Ok(mut fd) = File::open(t) else {
         return false
     };
 
-    let mut buf = vec![0; 1024];
+    let mut buf = [0; 1024];
 
     fd.read(&mut buf).unwrap();
 
@@ -162,7 +163,6 @@ fn create_missing(conn: &mut RpcConn, paths: Vec<PathBuf>, flavor: &str, schedul
     let mtx = Mutex::new((vec![], vec![]));
 
     let (_, supported) = rpc::wait_supported(conn, request_id)?;
-
     let supported = HashSet::<String>::from_iter(supported);
 
     paths.par_iter().for_each(|p| {

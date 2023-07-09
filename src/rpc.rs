@@ -2,8 +2,6 @@ use std::time::Duration;
 
 use rustbus::{RpcConn, MessageBuilder, connection::{Timeout, Error}};
 
-use crate::URI_PREFIX;
-
 const TIMEOUT: Timeout = Timeout::Duration(Duration::from_secs(1));
 
 // https://wiki.gnome.org/DraftSpecs/ThumbnailerSpec#org.freedesktop.thumbnails.Thumbnailer1
