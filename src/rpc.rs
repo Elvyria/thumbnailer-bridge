@@ -72,7 +72,7 @@ pub fn listen(conn: &mut RpcConn) -> Result<(), Error> {
         .build();
 
     // https://dbus.freedesktop.org/doc/dbus-specification.html#message-bus-routing-match-rules
-    msg.body.push_param2(vec!["type='signal',interface='org.freedesktop.thumbnails.Thumbnailer1',path='/org/freedesktop/thumbnails/Thumbnailer1',member='Ready'"], 0u32)?;
+    msg.body.push_param2(&["type='signal',interface='org.freedesktop.thumbnails.Thumbnailer1',path='/org/freedesktop/thumbnails/Thumbnailer1',member='Ready'"][..], 0u32)?;
 
     let id = conn.send_message(&mut msg)?.write_all().map_err(|e| e.1)?;
 
