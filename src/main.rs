@@ -139,8 +139,6 @@ fn thumbnail_is_valid(p_meta: Metadata, t: impl AsRef<Path>) -> bool {
 
     let modified = p_meta.modified().unwrap();
 
-    println!("{:?}", modified);
-
     let p_secs = modified.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
 
     let Some(t_secs) = time.split('.').next().and_then(|s| s.parse::<u64>().ok()) else {
@@ -261,6 +259,12 @@ mod tests {
         filetime::set_file_mtime("assets/test_image.png", mtime).unwrap();
 
         let p_meta = std::fs::metadata("assets/test_image.png").unwrap();
-        assert!(super::thumbnail_is_valid(p_meta, "assets/test_thumbnail.png"))
+        assert!(super::thumbnail_is_valid(p_meta, "assets/test_thumbnail.png"));
+
+        let mtime = FileTime::from_unix_time(1814435861, 173501);
+        filetime::set_file_mtime("assets/test_image.png", mtime).unwrap();
+
+        let p_meta = std::fs::metadata("assets/test_image.png").unwrap();
+        assert!(!super::thumbnail_is_valid(p_meta, "assets/test_thumbnail.png"));
     }
 }
