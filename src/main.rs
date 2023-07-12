@@ -17,6 +17,10 @@ struct Args {
     #[arg(value_name = "FILE")]
     paths: Vec<PathBuf>,
 
+    /// Print path to thumbnail if it exists and up to date
+    #[arg(short, long)]
+    thumbnail: bool,
+
     /// Flavor of the thumbnails
     #[arg(short, long, default_value = "normal")]
     flavor: String,
@@ -25,7 +29,7 @@ struct Args {
     #[arg(short, long, default_value = "default")]
     scheduler: String,
 
-    /// Do not check if thumbnail already exists and valid
+    /// Do not check if thumbnail already exists and up to date
     #[arg(short, long)]
     unchecked: bool,
 
@@ -102,9 +106,19 @@ fn main() -> Result<ExitCode, Error> {
     }
 
     if !args.paths.is_empty() {
-        if args.unchecked {
+        if args.thumbnail {
+            let Some(t) = thumbnail(args.paths.first().unwrap(), &args.flavor) else {
+                return Ok(ExitCode::FAILURE)
+            };
+
+            println!("{}", t.to_string_lossy());
+        }
+        else if args.unchecked
+        {
             create_all(&mut conn, args.paths, &args.flavor, &args.scheduler)?;
-        } else {
+        }
+        else
+        {
             create_missing(&mut conn, args.paths, &args.flavor, &args.scheduler)?;
         }
     }
@@ -146,6 +160,33 @@ fn thumbnail_is_valid(p_meta: Metadata, t: impl AsRef<Path>) -> bool {
     };
 
     p_secs == t_secs
+}
+
+fn thumbnail(p: impl AsRef<Path>, flavor: &str) -> Option<PathBuf> {
+    let mut thumbnail = cache_dir();
+    thumbnail.push("thumbnails");
+    thumbnail.push(flavor);
+
+    let p = p.as_ref();
+
+    let p_meta = std::fs::metadata(p).ok()?;
+
+    if !p.is_file() { return None }
+
+    let p = p.absolutize().ok()?;
+
+    let abs_str = p.to_str()?;
+
+    let mut uri = String::from(URI_PREFIX);
+    uri.push_str(abs_str);
+
+    thumbnail.push(format!("{:x}.png", md5::compute(&uri)));
+
+    if thumbnail.is_file() && thumbnail_is_valid(p_meta, &thumbnail) {
+        Some(thumbnail)
+    } else {
+        None
+    }
 }
 
 fn create_missing(conn: &mut RpcConn, paths: Vec<PathBuf>, flavor: &str, scheduler: &str) -> Result<(), Error> {

@@ -26,15 +26,16 @@ What are the advantages of using this instead of a shell script with `dbus-send`
 ```
 Bridge between your file manager and thumbnail daemon.
 
-thumbnailer-bridge [OPTIONS] [FILE]...
+Usage: thumbnailer-bridge [OPTIONS] [FILE]...
 
 Arguments:
   [FILE]...  
 
 Options:
+  -t, --thumbnail              Print path to thumbnail if it exists and up to date
   -f, --flavor <FLAVOR>        Flavor of the thumbnails [default: normal]
   -s, --scheduler <SCHEDULER>  Scheduler for thumbnail generation [default: default]
-  -u, --unchecked              Do not check if thumbnail already exists
+  -u, --unchecked              Do not check if thumbnail already exists and up to date
   -l, --listen                 Listen for notifications
       --list-flavors           List supported schedulers
       --list-schedulers        List supported thumbnail flavors
@@ -61,7 +62,14 @@ $ thumbnailer-bridge --listen
 /home/user/books/how_to_eat_chicken.epub
 ...
 ```
-Your will find your thumbnails at `$XDG_CACHE_HOME/thumbnails/(flavor)/(md5).png`.  
+
+You will find your thumbnails at `${XDG_CACHE_HOME:-~/.cache}/thumbnails/(flavor)/`.
+
+To find a thumbnail, corresponding to your file, you can use `-t` or `--thumbnail` flag.
+```bash
+$ thumbnailer-bridge -f x-large -t ~/pictures/cat.png
+/home/user/.cache/thumbnails/x-large/722b4dbaa8bf716e9f9f7f33f72fd9d4.png
+```
 
 For additional information:
 [Thumbnail Managing Standard](https://specifications.freedesktop.org/thumbnail-spec/thumbnail-spec-latest.html).
