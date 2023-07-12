@@ -1,7 +1,7 @@
-# thumbnailer-bridge
-[![Crates.io](https://img.shields.io/crates/v/thumbnailer-bridge.svg)](https://crates.io/crates/thumbnailer-bridge)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
+# Thumbnailer Bridge
+[![Crates.io](https://img.shields.io/crates/v/thumbnailer-bridge?logo=rust)](https://crates.io/crates/thumbnailer-bridge)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow)](https://opensource.org/licenses/MIT)
+[![Static Badge](https://img.shields.io/badge/Troubleshooting-%23ED6663?logo=GitHub&label=Wiki)](../../wiki/Troubleshooting)
 
 This tool makes requests to create thumbnails through D-Bus following
 [org.freedesktop.thumbnails.Thumbnailer1](https://wiki.gnome.org/DraftSpecs/ThumbnailerSpec#org.freedesktop.thumbnails.Thumbnailer1)
