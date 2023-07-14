@@ -1,7 +1,7 @@
 # Thumbnailer Bridge
 [![Crates.io](https://img.shields.io/crates/v/thumbnailer-bridge?logo=rust)](https://crates.io/crates/thumbnailer-bridge)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow)](https://opensource.org/licenses/MIT)
-[![Static Badge](https://img.shields.io/badge/Troubleshooting-%23ED6663?logo=GitHub&label=Wiki)](../../wiki/Troubleshooting)
+[![Static Badge](https://img.shields.io/badge/Home-%23ED6663?logo=GitHub&label=Wiki)](../../wiki/Home)
 
 This tool makes requests to create thumbnails through D-Bus following
 [org.freedesktop.thumbnails.Thumbnailer1](https://wiki.gnome.org/DraftSpecs/ThumbnailerSpec#org.freedesktop.thumbnails.Thumbnailer1)
@@ -90,21 +90,4 @@ To build this little thing, you'll need some [Rust](https://www.rust-lang.org/).
 git clone --depth 1 https://github.com/Elvyria/thumbnailer-bridge
 cd thumbnailer-bridge
 cargo build --release
-```
-
-## Integrations
-
-### [lf](https://github.com/gokcehan/lf)
-```
-# lfrc
-
-cmd on-cd &{{
-    case $PWD in
-	    "$XDG_CACHE_HOME:-$HOME/.cache"/thumbnails/*) exit 0 ;;
-    esac
-
-    thumbnailer-bridge -f x-large "$PWD"/*
-}}
-
-on-cd
 ```
