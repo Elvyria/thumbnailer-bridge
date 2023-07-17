@@ -569,6 +569,7 @@ dependencies = [
  "anyhow",
  "clap",
  "filetime",
+ "lazy_static",
  "md5",
  "path-absolutize",
  "rayon",

@@ -1,5 +1,6 @@
 mod rpc;
 mod png;
+mod uri;
 
 use std::{path::{PathBuf, Path}, env, collections::HashSet, sync::Mutex, io::{Write, BufRead, self, Read}, process::ExitCode, fs::{File, Metadata}, time::UNIX_EPOCH, os::unix::prelude::OsStringExt, ffi::OsString};
 use rayon::prelude::*;
@@ -8,8 +9,6 @@ use anyhow::Error;
 use clap::Parser;
 use path_absolutize::Absolutize;
 use rustbus::{RpcConn, connection::Timeout};
-
-pub const URI_PREFIX: &str = "file://";
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -163,14 +162,11 @@ fn thumbnail(p: impl AsRef<Path>, flavor: &str) -> Option<PathBuf> {
 
     if !p.is_file() { return None }
 
-    let p = p.absolutize().ok()?;
+    let abs = p.absolutize().ok()?;
 
-    let abs_str = p.to_str()?;
+    let uri = uri::file(abs)?;
 
-    let mut uri = String::from(URI_PREFIX);
-    uri.push_str(abs_str);
-
-    thumbnail.push(format!("{:x}.png", md5::compute(&uri)));
+    thumbnail.push(format!("{:x}.png", md5::compute(uri)));
 
     if thumbnail.is_file() && thumbnail_is_valid(p_meta, &thumbnail) {
         Some(thumbnail)
@@ -210,8 +206,7 @@ fn create_missing(conn: &mut RpcConn, paths: Vec<PathBuf>, flavor: &str, schedul
             return
         };
 
-        let mut uri = String::from(URI_PREFIX);
-        uri.push_str(abs_str);
+        let Some(uri) = uri::file(abs_str) else { return };
 
         let sum = format!("/{:x}.png", md5::compute(&uri));
 
@@ -258,8 +253,7 @@ fn create_all(conn: &mut RpcConn, paths: Vec<PathBuf>, flavor: &str, scheduler: 
             return
         };
 
-        let mut uri = String::from(URI_PREFIX);
-        uri.push_str(abs_str);
+        let Some(uri) = uri::file(abs_str) else { return };
 
         if let Some(mime) = tree_magic_mini::from_filepath(p) {
             if supported.contains(mime) {
