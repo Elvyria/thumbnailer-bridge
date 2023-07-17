@@ -46,7 +46,7 @@ Options:
 
 This is how you request thumbnails. Flavor `-f` or `--flavor` is usually responsible for the size of a thumbnail.  
 
-```bash
+```sh
 thumbnailer-bridge -f x-large $PWD/*
 ```
 
@@ -55,7 +55,7 @@ this way, if you're inside a sym-linked location `/home/user/pictures -> /mnt/na
 if you decide to remount original location `/home/user/pictures -> /mnt/nas-old`
 
 If you want to be notified when thumbnails are ready to use, add `--listen` flag.
-```bash
+```sh
 $ thumbnailer-bridge --listen
 /home/user/pictures/meal-2023-02-22.png
 /home/user/pictures/booty.jpg
@@ -66,7 +66,7 @@ $ thumbnailer-bridge --listen
 You will find your thumbnails at `${XDG_CACHE_HOME:-~/.cache}/thumbnails/(flavor)/`.
 
 To find a thumbnail, corresponding to your file, you can use `-t` or `--thumbnail` flag.
-```bash
+```sh
 $ thumbnailer-bridge -f x-large -t ~/pictures/cat.png
 /home/user/.cache/thumbnails/x-large/722b4dbaa8bf716e9f9f7f33f72fd9d4.png
 ```
@@ -78,7 +78,7 @@ For additional information:
 
 Can be installed from [crates.io](https://crates.io/) with `cargo`:
 
-```bash
+```sh
 cargo install thumbnailer-bridge
 ```
 
@@ -86,7 +86,7 @@ cargo install thumbnailer-bridge
 
 To build this little thing, you'll need some [Rust](https://www.rust-lang.org/).
 
-```bash
+```sh
 git clone --depth 1 https://github.com/Elvyria/thumbnailer-bridge
 cd thumbnailer-bridge
 cargo build --release
