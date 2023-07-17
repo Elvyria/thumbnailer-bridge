@@ -1,6 +1,6 @@
 [package]
 name = "thumbnailer-bridge"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Elvyria <elvyria@tutanota.com>"]
 description = "Bridge between your file manager and thumbnail daemon."
 repository = "https://github.com/Elvyria/thumbnailer-bridge"
