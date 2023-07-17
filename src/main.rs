@@ -77,6 +77,7 @@ fn main() -> Result<ExitCode, Error> {
 
     if let Some(mut list) = list {
         list.par_sort_unstable();
+        list.dedup();
 
         let s = list.iter().fold(vec![0; 0], |mut v, b| {
             v.extend_from_slice(b.as_bytes());
@@ -98,7 +99,7 @@ fn main() -> Result<ExitCode, Error> {
 
         if let Some(path) = args.paths.first() {
             if !path.exists() {
-                println!("\"{}\": No such file or directory", path.to_str().unwrap());
+                println!("\"{}\": No such file or directory", path.to_string_lossy());
 
                 return Ok(ExitCode::FAILURE)
             }
