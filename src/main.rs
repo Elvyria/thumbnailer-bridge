@@ -1,8 +1,9 @@
 mod rpc;
 mod png;
 mod uri;
+mod xdg;
 
-use std::{path::{PathBuf, Path}, env, collections::HashSet, sync::Mutex, io::{Write, BufRead, self, Read}, process::ExitCode, fs::{File, Metadata}, time::UNIX_EPOCH, os::unix::prelude::OsStringExt, ffi::OsString};
+use std::{path::{PathBuf, Path}, collections::HashSet, sync::Mutex, io::{Write, BufRead, self, Read}, process::ExitCode, fs::{File, Metadata}, time::UNIX_EPOCH, os::unix::prelude::OsStringExt, ffi::OsString};
 use rayon::prelude::*;
 
 use anyhow::Error;
@@ -152,9 +153,7 @@ fn thumbnail_is_valid(p_meta: Metadata, t: impl AsRef<Path>) -> bool {
 }
 
 fn thumbnail(p: impl AsRef<Path>, flavor: &str) -> Option<PathBuf> {
-    let mut thumbnail = cache_dir();
-    thumbnail.push("thumbnails");
-    thumbnail.push(flavor);
+    let mut thumbnail = xdg::thumbnails_dir(flavor);
 
     let p = p.as_ref();
 
@@ -178,11 +177,7 @@ fn thumbnail(p: impl AsRef<Path>, flavor: &str) -> Option<PathBuf> {
 fn create_missing(conn: &mut RpcConn, paths: Vec<PathBuf>, flavor: &str, scheduler: &str) -> Result<(), Error> {
     let request_id = rpc::request_supported(conn)?;
 
-    let mut thumbnails_dir = cache_dir();
-    thumbnails_dir.push("thumbnails");
-    thumbnails_dir.push(flavor);
-
-    let mut thumbnails_dir = thumbnails_dir.into_os_string().into_vec();
+    let mut thumbnails_dir = xdg::thumbnails_dir(flavor).into_os_string().into_vec();
     let thumbnails_dir_len = thumbnails_dir.len();
 
     thumbnails_dir.resize(thumbnails_dir_len + 37, 0);
