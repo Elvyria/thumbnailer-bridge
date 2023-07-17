@@ -126,18 +126,6 @@ fn main() -> Result<ExitCode, Error> {
     Ok(ExitCode::SUCCESS)
 }
 
-fn cache_dir() -> PathBuf {
-    env::var_os("XDG_CACHE_HOME")
-        .map(PathBuf::from)
-        .or_else(|| {
-            env::var_os("HOME")
-                .map(PathBuf::from)
-                .map(|mut p| { p.push(".cache"); p })
-        })
-    .expect("couldn't find cache directory")
-}
-
-#[allow(clippy::unused_io_amount)]
 fn thumbnail_is_valid(p_meta: Metadata, t: impl AsRef<Path>) -> bool {
     let Ok(mut fd) = File::open(t) else {
         return false
@@ -145,7 +133,9 @@ fn thumbnail_is_valid(p_meta: Metadata, t: impl AsRef<Path>) -> bool {
 
     let mut buf = [0; 1024];
 
-    fd.read(&mut buf).unwrap();
+    if fd.read(&mut buf).is_err() {
+        return false
+    };
 
     let Some(time) = png::mtime(&buf) else {
         return false
