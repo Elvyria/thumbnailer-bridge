@@ -1,26 +1,26 @@
 use std::path::Path;
 
-static EXCLUDED: [&str; 0x3F] = { 
-    let mut b = [""; 0x3F];
+static EXCLUDED: [[u8; 3]; 0x3F] = { 
+    let mut b = [[0u8; 3]; 0x3F];
 
-    b[0x00] = "00"; b[0x01] = "01"; b[0x02] = "02";
-    b[0x03] = "03"; b[0x04] = "04"; b[0x05] = "05";
-    b[0x06] = "06"; b[0x07] = "07"; b[0x08] = "08";
-    b[0x09] = "09"; b[0x0A] = "0A"; b[0x0B] = "0B";
-    b[0x0C] = "0C"; b[0x0D] = "0D"; b[0x0E] = "0E";
-    b[0x0F] = "0F"; b[0x11] = "11"; b[0x12] = "12";
-    b[0x13] = "13"; b[0x14] = "14"; b[0x15] = "15";
-    b[0x16] = "16"; b[0x17] = "17"; b[0x18] = "18";
-    b[0x19] = "19"; b[0x1A] = "1A"; b[0x1B] = "1B";
-    b[0x1C] = "1C"; b[0x1D] = "1D"; b[0x1E] = "1E";
-    b[0x1F] = "1F";
+    b[0x00] = *b"%00"; b[0x01] = *b"%01"; b[0x02] = *b"%02";
+    b[0x03] = *b"%03"; b[0x04] = *b"%04"; b[0x05] = *b"%05";
+    b[0x06] = *b"%06"; b[0x07] = *b"%07"; b[0x08] = *b"%08";
+    b[0x09] = *b"%09"; b[0x0A] = *b"%0A"; b[0x0B] = *b"%0B";
+    b[0x0C] = *b"%0C"; b[0x0D] = *b"%0D"; b[0x0E] = *b"%0E";
+    b[0x0F] = *b"%0F"; b[0x11] = *b"%11"; b[0x12] = *b"%12";
+    b[0x13] = *b"%13"; b[0x14] = *b"%14"; b[0x15] = *b"%15";
+    b[0x16] = *b"%16"; b[0x17] = *b"%17"; b[0x18] = *b"%18";
+    b[0x19] = *b"%19"; b[0x1A] = *b"%1A"; b[0x1B] = *b"%1B";
+    b[0x1C] = *b"%1C"; b[0x1D] = *b"%1D"; b[0x1E] = *b"%1E";
+    b[0x1F] = *b"%1F";
 
-    b[' ' as usize] = "20";
-    b['"' as usize] = "22";
-    b['#' as usize] = "23";
-    b['%' as usize] = "25";
-    b['<' as usize] = "3C";
-    b['>' as usize] = "3E";
+    b[' ' as usize] = *b"%20";
+    b['"' as usize] = *b"%22";
+    b['#' as usize] = *b"%23";
+    b['%' as usize] = *b"%25";
+    b['<' as usize] = *b"%3C";
+    b['>' as usize] = *b"%3E";
 
     b
 };
@@ -30,20 +30,23 @@ pub const FILE_PREFIX: &str = "file://";
 pub fn file(p: impl AsRef<Path>) -> Option<String> {
     let p = p.as_ref().to_str()?;
 
-    let mut uri = p.to_owned();
-    let mut d = 0;
+    let mut b = Vec::with_capacity(FILE_PREFIX.len() + p.len());
+    b.extend_from_slice(FILE_PREFIX.as_bytes());
+
+    let mut last = 0;
 
     for (i, c) in p.char_indices() {
-        if (c as usize) < EXCLUDED.len() && !EXCLUDED[c as usize].is_empty() {
-            unsafe { uri.as_bytes_mut()[i + d] = b'%' };
-            uri.insert_str(i + d + 1, EXCLUDED[c as usize]);
-            d += 2;
+        if (c as usize) < EXCLUDED.len() && EXCLUDED[c as usize][0] == b'%' {
+            b.extend_from_slice(&p.as_bytes()[last..i]);
+            b.extend_from_slice(&EXCLUDED[c as usize]);
+
+            last = i + 1;
         }
     }
 
-    uri.insert_str(0, FILE_PREFIX);
+    b.extend_from_slice(&p.as_bytes()[last..]);
 
-    Some(uri)
+    Some(unsafe { String::from_utf8_unchecked(b) })
 }
 
 #[cfg(test)]
