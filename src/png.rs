@@ -11,7 +11,7 @@ pub fn mtime(mut b: &[u8]) -> Option<Cow<'_, str>> {
         // Chunk Length
         let len = u32::from_be_bytes(b[..4].try_into().unwrap()) as usize;
 
-        if b[4..8] == *b"tEXt".as_slice() {
+        if b[4..8] == *b"tEXt" {
             let mut iter = b[8..len + 8].split(|b| *b == 0).map(String::from_utf8_lossy);
 
             if iter.next() == Some(Borrowed("Thumb::MTime")) {
